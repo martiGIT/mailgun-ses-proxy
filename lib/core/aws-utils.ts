@@ -3,7 +3,10 @@ import { replaceAll } from "./common"
 import { MailgunEvents, MailgunRecipientVariables } from "@/types/default"
 import { Prisma } from "../generated"
 
-function doSubstitution(inputText: string, substitutions: MailgunRecipientVariables[0]) {
+function doSubstitution(inputText: string | undefined, substitutions: MailgunRecipientVariables[0]): string {
+    if (!inputText) {
+        return ""
+    }
     for (const key of Object.keys(substitutions)) {
         inputText = replaceAll(
             inputText,
@@ -35,8 +38,13 @@ export function preparePayload(input: any, siteId: string): SendEmailRequest[] {
         const recipientVars = recepientVariables[receiverEmail] || {}
 
         // Ensure we have valid html and text content
-        const htmlContent = input.html || input.text || ""
-        const textContent = input.text || input.html || ""
+        // At least one must be present for AWS SES
+        const hasHtml = input.html && input.html.trim().length > 0
+        const hasText = input.text && input.text.trim().length > 0
+
+        // If neither is present, use a default message
+        let htmlContent = hasHtml ? input.html : (hasText ? input.text : "<p>No content</p>")
+        let textContent = hasText ? input.text : (hasHtml ? input.html : "No content")
 
         const emailRequest: SendEmailRequest = {
             ConfigurationSetName: process.env.NEWSLETTER_CONFIGURATION_SET_NAME,
@@ -48,12 +56,12 @@ export function preparePayload(input: any, siteId: string): SendEmailRequest[] {
                         Data: input.subject || "No Subject",
                     },
                     Body: {
-                        Text: textContent ? {
+                        Text: {
                             Data: doSubstitution(textContent, recipientVars),
-                        } : undefined,
-                        Html: htmlContent ? {
+                        },
+                        Html: {
                             Data: doSubstitution(htmlContent, recipientVars),
-                        } : undefined,
+                        },
                     },
                     Headers: recipientVars.unsubscribe_url ? [
                         {
