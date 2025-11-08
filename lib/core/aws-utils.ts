@@ -125,9 +125,15 @@ export interface NotificationEvent {
 export function parseNotificationEvent(messageId: string, inputEvent: string): NotificationEvent {
     const event = JSON.parse(inputEvent) as {
         eventType: keyof typeof awsToMailgunType
-        mail: { messageId: string, timestamp: Date }
+        mail?: { messageId: string, timestamp: Date }
         open?: { timestamp: Date }
     }
+
+    // Validate that required fields exist
+    if (!event.mail || !event.mail.messageId) {
+        throw new Error(`Invalid notification event: missing mail.messageId. Event: ${inputEvent}`)
+    }
+
     return {
         notificationId: messageId,
         type: String(awsToMailgunType[event.eventType]).toLocaleLowerCase(),
