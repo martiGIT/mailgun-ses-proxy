@@ -15,53 +15,81 @@ function doSubstitution(inputText: string, substitutions: MailgunRecipientVariab
 }
 
 export function preparePayload(input: any, siteId: string): SendEmailRequest[] {
-    const recepientVariables = JSON.parse(input["recipient-variables"]) as MailgunRecipientVariables
+    // Safely parse recipient-variables with fallback to empty object
+    let recepientVariables: MailgunRecipientVariables = {}
+    try {
+        const recipientVarsRaw = input["recipient-variables"]
+        if (recipientVarsRaw && recipientVarsRaw !== "undefined" && typeof recipientVarsRaw === "string") {
+            recepientVariables = JSON.parse(recipientVarsRaw) as MailgunRecipientVariables
+        } else if (recipientVarsRaw && typeof recipientVarsRaw === "object") {
+            recepientVariables = recipientVarsRaw as MailgunRecipientVariables
+        }
+    } catch (error) {
+        console.error("Failed to parse recipient-variables:", error)
+        recepientVariables = {}
+    }
+
     const receivers = Array.isArray(input.to) ? input.to : [input.to]
-    const result = receivers.map((receiverEmail: string | number) => ({
-        ConfigurationSetName: process.env.NEWSLETTER_CONFIGURATION_SET_NAME,
-        FromEmailAddress: input.from,
-        Destination: { ToAddresses: [receiverEmail] },
-        ReplyToAddresses: [input["h:Reply-To"]],
-        Content: {
-            Simple: {
-                Subject: {
-                    Data: input.subject,
+    const result = receivers.map((receiverEmail: string | number) => {
+        const emailAddress = String(receiverEmail)
+        const recipientVars = recepientVariables[receiverEmail] || {}
+
+        // Ensure we have valid html and text content
+        const htmlContent = input.html || input.text || ""
+        const textContent = input.text || input.html || ""
+
+        const emailRequest: SendEmailRequest = {
+            ConfigurationSetName: process.env.NEWSLETTER_CONFIGURATION_SET_NAME,
+            FromEmailAddress: input.from,
+            Destination: { ToAddresses: [emailAddress] },
+            Content: {
+                Simple: {
+                    Subject: {
+                        Data: input.subject || "No Subject",
+                    },
+                    Body: {
+                        Text: textContent ? {
+                            Data: doSubstitution(textContent, recipientVars),
+                        } : undefined,
+                        Html: htmlContent ? {
+                            Data: doSubstitution(htmlContent, recipientVars),
+                        } : undefined,
+                    },
+                    Headers: recipientVars.unsubscribe_url ? [
+                        {
+                            Name: "List-Unsubscribe-Post",
+                            Value: "List-Unsubscribe=One-Click",
+                        },
+                        {
+                            Name: "List-Unsubscribe",
+                            Value: `<${recipientVars.unsubscribe_url}>`,
+                        },
+                    ] : undefined,
                 },
-                Body: {
-                    Text: {
-                        Data: doSubstitution(input.text, recepientVariables[receiverEmail]),
-                    },
-                    Html: {
-                        Data: doSubstitution(input.html, recepientVariables[receiverEmail]),
-                    },
+            },
+            EmailTags: [
+                {
+                    Name: "siteId",
+                    Value: siteId,
                 },
-                Headers: [
-                    {
-                        Name: "List-Unsubscribe-Post",
-                        Value: "List-Unsubscribe=One-Click",
-                    },
-                    {
-                        Name: "List-Unsubscribe",
-                        Value: `<${recepientVariables[receiverEmail].unsubscribe_url}>`,
-                    },
-                ],
-            },
-        },
-        EmailTags: [
-            {
-                Name: "siteId",
-                Value: siteId,
-            },
-            {
-                Name: "batchId",
-                Value: input["v:email-id"],
-            },
-            {
-                Name: "ghost-email",
-                Value: "true",
-            },
-        ],
-    }))
+                {
+                    Name: "batchId",
+                    Value: input["v:email-id"] || "no-batch-id",
+                },
+                {
+                    Name: "ghost-email",
+                    Value: "true",
+                },
+            ],
+        }
+
+        // Add ReplyToAddresses only if present
+        if (input["h:Reply-To"]) {
+            emailRequest.ReplyToAddresses = [input["h:Reply-To"]]
+        }
+
+        return emailRequest
+    })
     return result
 }
 
