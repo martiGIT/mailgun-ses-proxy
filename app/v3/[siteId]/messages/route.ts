@@ -31,7 +31,21 @@ export async function POST(req: Request, { params }: pathParam) {
 }
 
 async function validateRequest(req: Request) {
-    const data = formDataToObject(await req.formData())
+    const formData = await req.formData()
+
+    // Process files (html, text) - read their content
+    const htmlFile = formData.get('html')
+    const textFile = formData.get('text')
+
+    if (htmlFile instanceof File) {
+        formData.set('html', await htmlFile.text())
+    }
+
+    if (textFile instanceof File) {
+        formData.set('text', await textFile.text())
+    }
+
+    const data = formDataToObject(formData)
     // fixing Ghost `email_previews` endpoint call
     data["v:email-id"] = data["v:email-id"] || "no-batch-id-provided"
     return data
